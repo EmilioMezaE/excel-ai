@@ -2,101 +2,125 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { DownloadCloud } from "lucide-react"; // 🔹 Import Lucide Icon
+import { DownloadCloud, Send } from "lucide-react"; // 🔹 Import Lucide Icons
 import type React from "react"; // Import React
 
 export default function RequestForm() {
-  const [request, setRequest] = useState("");
-  const [downloadUrl, setDownloadUrl] = useState<string | null>(null); // Store file URL
-  const [loading, setLoading] = useState(false); // Loading state
-  const [error, setError] = useState<string | null>(null); // Error handling
+  const [messages, setMessages] = useState<{ text: string; sender: "user" | "ai" }[]>([]);
+  const [currentMessage, setCurrentMessage] = useState("");
+  const [loading, setLoading] = useState(false);
+  const [userId, setUserId] = useState(() => Math.random().toString(36).substring(7)); // Generate unique session ID
+  const [downloadUrl, setDownloadUrl] = useState<string | null>(null);
 
-  // API Base URL (Make sure FastAPI is running locally or deployed)
   const API_BASE_URL = "http://127.0.0.1:8000"; // Change if hosted
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // Function to handle user message submission
+  const handleSendMessage = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (!currentMessage.trim()) return;
+
+    // Add user message to chat
+    setMessages((prev) => [...prev, { text: currentMessage, sender: "user" }]);
+    setCurrentMessage("");
     setLoading(true);
-    setDownloadUrl(null);
-    setError(null);
 
-    console.log("📤 Sending request:", request); // Debugging output
+    try {
+      // Send message to backend
+      const response = await fetch(`${API_BASE_URL}/chat`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId, message: currentMessage }),
+      });
 
+      const data = await response.json();
+      setMessages((prev) => [...prev, { text: data.reply, sender: "ai" }]);
+
+      if (data.done) {
+        await generateExcelFile(); // If all questions are answered, generate Excel
+      }
+    } catch (error) {
+      console.error("Error:", error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Function to generate Excel file after all inputs are collected
+  const generateExcelFile = async () => {
+    setLoading(true);
     try {
       const response = await fetch(`${API_BASE_URL}/generate_excel`, {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({ description: request }), // Send user input
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ user_id: userId }),
       });
 
-      console.log("📥 Response received:", response); // Debugging output
-
-      if (!response.ok) {
-        const errorResponse = await response.json();
-        console.error("❌ Server error:", errorResponse);
-        throw new Error(`Failed to generate file: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error("Failed to generate Excel file.");
 
       // Convert response to a blob
       const blob = await response.blob();
       const url = URL.createObjectURL(blob);
-      setDownloadUrl(url); // Store file URL for download
-
-      console.log("✅ Excel file generated successfully!");
-
-    } catch (error: any) {
-      console.error("⚠️ Error fetching Excel file:", error.message);
-      setError("Failed to generate Excel file. Please try again.");
+      setDownloadUrl(url);
+      setMessages((prev) => [...prev, { text: "✅ Your Excel file is ready! Click below to download.", sender: "ai" }]);
+    } catch (error) {
+      console.error("Error generating file:", error);
     } finally {
       setLoading(false);
-      setRequest(""); // Reset input field
     }
   };
 
   return (
-    <section id="request-form" className="w-full max-w-3xl mx-auto py-16 px-4 sm:px-6 lg:px-8">
-      <motion.form
-        onSubmit={handleSubmit}
-        className="bg-white shadow-2xl rounded-3xl p-8"
+    <section id="request-form" className="w-full max-w-2xl mx-auto py-16 px-4 sm:px-6 lg:px-8">
+      <motion.div
+        className="bg-white shadow-xl rounded-3xl p-8 flex flex-col items-center"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2, duration: 0.8 }}
       >
         <h2 className="text-3xl font-bold text-gray-800 mb-6 text-center">Describe Your Ideal Excel File</h2>
-        <div className="mb-6">
-          <textarea
-            id="request"
-            name="request"
-            rows={4}
-            className="w-full px-4 py-3 rounded-xl border-2 border-indigo-200 focus:border-indigo-500 focus:ring focus:ring-indigo-200 focus:ring-opacity-50 transition duration-300"
-            placeholder="E.g., A monthly budget tracker with income and expense categories, and automatic calculations for savings"
-            value={request}
-            onChange={(e) => setRequest(e.target.value)}
-          ></textarea>
+
+        {/* AI Chat UI */}
+        <div className="w-full mb-6 h-64 overflow-y-auto border border-gray-300 rounded-xl p-4 bg-gray-50 shadow-inner">
+          {messages.length === 0 ? (
+            <p className="text-gray-500">💬 AI: Let's create a custom Excel file! Answer a few quick questions to get started.</p>
+          ) : (
+            messages.map((msg, index) => (
+              <motion.div
+                key={index}
+                className={`p-3 my-1 max-w-xs rounded-lg ${
+                  msg.sender === "user" ? "bg-indigo-500 text-white self-end ml-auto" : "bg-gray-200 text-gray-800"
+                }`}
+              >
+                {msg.text}
+              </motion.div>
+            ))
+          )}
         </div>
 
-        {/* Submit Button with Loading State */}
-        <motion.button
-          type="submit"
-          whileHover={{ scale: 1.02 }}
-          whileTap={{ scale: 0.98 }}
-          disabled={loading}
-          className={`w-full bg-gradient-to-r from-indigo-600 to-purple-600 text-white font-semibold py-3 px-6 rounded-xl shadow-md hover:from-indigo-700 hover:to-purple-700 transition duration-300 ${
-            loading ? "opacity-50 cursor-not-allowed" : ""
-          }`}
-        >
-          {loading ? "Generating..." : "Generate Excel File"}
-        </motion.button>
-
-        {/* Error Message */}
-        {error && <p className="text-red-500 text-center mt-4">{error}</p>}
+        {/* Input Field */}
+        <form onSubmit={handleSendMessage} className="relative w-full mb-6">
+          <input
+            type="text"
+            className="w-full px-4 py-3 pr-12 rounded-2xl border-2 border-gray-300 focus:border-indigo-500 focus:ring-indigo-300 shadow-md bg-gray-100 text-gray-800 transition duration-300"
+            placeholder="Type your response..."
+            value={currentMessage}
+            onChange={(e) => setCurrentMessage(e.target.value)}
+            disabled={loading}
+          />
+          <motion.button
+            type="submit"
+            disabled={loading}
+            whileHover={{ scale: 1.05 }}
+            whileTap={{ scale: 0.95 }}
+            className="absolute right-4 top-3 bg-indigo-600 text-white p-2 rounded-full shadow-md hover:bg-indigo-700 transition duration-300"
+          >
+            <Send size={20} />
+          </motion.button>
+        </form>
 
         {/* Download Section */}
         {downloadUrl && (
           <div className="mt-6 flex flex-col items-center">
-            <p className="text-green-600 font-medium mb-2">✅ File Ready! Click below to download:</p>
             <motion.a
               href={downloadUrl}
               download="Generated_Excel.xlsx"
@@ -109,7 +133,7 @@ export default function RequestForm() {
             </motion.a>
           </div>
         )}
-      </motion.form>
+      </motion.div>
     </section>
   );
 }

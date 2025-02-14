@@ -1,6 +1,6 @@
 import os
 import json
-import re  # Import regex for cleaning AI response
+import re
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -8,8 +8,8 @@ import openpyxl
 from pydantic import BaseModel
 from openai import OpenAI
 
-# Load API Key from environment variables (You will set this manually)
-AZURE_OPENAI_API_KEY = os.getenv("GITHUB_TOKEN")  # 🔹 Set your GitHub token here
+# Load API Key from environment variables
+AZURE_OPENAI_API_KEY = os.getenv("GITHUB_TOKEN")
 
 if not AZURE_OPENAI_API_KEY:
     raise ValueError("Set your GitHub PAT token as an environment variable (GITHUB_TOKEN).")
@@ -24,30 +24,71 @@ client = OpenAI(
 app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Change "*" to specific frontend domain if deployed
+    allow_origins=["*"],  
     allow_credentials=True,
-    allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
-    allow_headers=["*"],  # Allow all headers
+    allow_methods=["*"],  
+    allow_headers=["*"],  
 )
 
-# Define request model
-class ExcelRequest(BaseModel):
-    description: str  # User input describing the required Excel template
+# Store user session details
+user_sessions = {}
 
-# Function to generate structured template data using OpenAI (Azure)
-def generate_excel_structure(description):
+# Define request models
+class ChatRequest(BaseModel):
+    user_id: str
+    message: str  
+
+class ExcelRequest(BaseModel):
+    user_id: str  
+
+# Questions for the agent
+QUESTIONS = [
+    "What type of Excel file do you need? (e.g., Budget Tracker, Payroll, Inventory, Sales Report)",
+    "Do you want pre-filled values in the Excel file? (Yes/No)",
+    "What specific calculations should be included? (e.g., Sum, Averages, Profit Margins, Tax Deductions)",
+    "Do you need visual elements like charts, conditional formatting, or colored sections?"
+]
+
+# Function to interact with AI agent
+def ask_agent(user_id, user_message):
+    session = user_sessions.get(user_id, {"step": 0, "responses": []})
+
+    # Save user response
+    session["responses"].append(user_message)
+
+    if session["step"] < len(QUESTIONS):
+        next_question = QUESTIONS[session["step"]]
+        session["step"] += 1
+        user_sessions[user_id] = session
+        return {"reply": next_question, "done": False}
+
+    # If all questions are answered, generate Excel structure
+    user_sessions.pop(user_id, None)  # Clear session
+    return {"reply": "Thank you! Generating your Excel file now...", "done": True, "responses": session["responses"]}
+
+# API Endpoint to handle user conversation
+@app.post("/chat")
+async def chat_with_ai(request: ChatRequest):
+    response = ask_agent(request.user_id, request.message)
+    return response
+
+# Function to generate structured template data using OpenAI
+def generate_excel_structure(responses):
     prompt = f"""
-    Generate a structured JSON template for an Excel file based on the following user request:
-    '{description}'. Include:
-    - 'template_name': The name of the template.
+    Generate a structured JSON template for an Excel file based on the following user inputs:
+    - File Type: {responses[0]}
+    - Pre-filled Values: {responses[1]}
+    - Calculations: {responses[2]}
+    - Visual Elements: {responses[3]}
+    
+    Include:
+    - 'template_name': A relevant name for the template.
     - 'columns': A list of column headers.
     - 'formulas': A dictionary mapping column letters (e.g., "F2") to Excel formulas.
-    - 'formatting': Any formatting instructions (e.g., bold headers, colored cells).
-    Return only valid JSON. Do NOT include markdown formatting (```json ... ```).
+    - 'formatting': Any formatting instructions (e.g., bold headers, colored cells, charts).
     """
 
     try:
-        # Use OpenAI API to generate structured response
         response = client.chat.completions.create(
             model="gpt-4o",
             messages=[{"role": "user", "content": prompt}],
@@ -56,21 +97,32 @@ def generate_excel_structure(description):
             top_p=1
         )
 
-        # Extract AI-generated response
         raw_output = response.choices[0].message.content.strip()
-
-        # 🔹 Ensure JSON is correctly formatted by removing markdown and non-JSON characters
         raw_output = re.sub(r'```json|```', '', raw_output).strip()
-
-        # Ensure response is valid JSON
         return json.loads(raw_output)
 
     except json.JSONDecodeError as e:
         raise HTTPException(status_code=500, detail=f"AI response could not be parsed as JSON. Error: {str(e)} \nRaw Output: {raw_output}")
 
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"OpenAI API Error: {str(e)}")
+# API Endpoint to generate and return an Excel file
+@app.post("/generate_excel")
+async def generate_excel(request: ExcelRequest):
+    try:
+        user_data = user_sessions.pop(request.user_id, None)
+        if not user_data or len(user_data["responses"]) < 4:
+            raise HTTPException(status_code=400, detail="Incomplete data. Please complete the chat process.")
 
+        # Generate structured template data
+        template_data = generate_excel_structure(user_data["responses"])
+
+        # Create Excel file
+        file_path = create_excel_file(template_data)
+
+        # Return the Excel file for download
+        return FileResponse(file_path, filename=os.path.basename(file_path), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
 
 # Function to create an Excel file
 def create_excel_file(template_data):
@@ -96,19 +148,3 @@ def create_excel_file(template_data):
     # Save the file
     wb.save(filepath)
     return filepath
-
-# API endpoint to generate and return an Excel file
-@app.post("/generate_excel")
-async def generate_excel(request: ExcelRequest):
-    try:
-        # Step 1: Generate structured template data
-        template_data = generate_excel_structure(request.description)
-
-        # Step 2: Create the Excel file
-        file_path = create_excel_file(template_data)
-
-        # Step 3: Return the Excel file for download
-        return FileResponse(file_path, filename=os.path.basename(file_path), media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
