@@ -1,6 +1,8 @@
 import os
 import json
+import re  # Import regex for cleaning AI response
 from fastapi import FastAPI, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 import openpyxl
 from pydantic import BaseModel
@@ -20,6 +22,13 @@ client = OpenAI(
 
 # Initialize FastAPI app
 app = FastAPI()
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],  # Change "*" to specific frontend domain if deployed
+    allow_credentials=True,
+    allow_methods=["*"],  # Allow all methods (GET, POST, OPTIONS, etc.)
+    allow_headers=["*"],  # Allow all headers
+)
 
 # Define request model
 class ExcelRequest(BaseModel):
@@ -50,11 +59,8 @@ def generate_excel_structure(description):
         # Extract AI-generated response
         raw_output = response.choices[0].message.content.strip()
 
-        # Remove possible markdown wrapping
-        if raw_output.startswith("```json"):
-            raw_output = raw_output[7:]  # Remove ```json
-        if raw_output.endswith("```"):
-            raw_output = raw_output[:-3]  # Remove ```
+        # 🔹 Ensure JSON is correctly formatted by removing markdown and non-JSON characters
+        raw_output = re.sub(r'```json|```', '', raw_output).strip()
 
         # Ensure response is valid JSON
         return json.loads(raw_output)

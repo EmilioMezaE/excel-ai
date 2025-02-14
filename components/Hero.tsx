@@ -4,12 +4,12 @@ import { motion } from "framer-motion";
 
 export default function Hero() {
   return (
-    <section className="w-full py-20 px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-indigo-50 to-white">
+    <section className="w-full h-[calc(100vh-4rem)] flex flex-col justify-center items-center px-4 sm:px-6 lg:px-8 bg-gradient-to-b from-indigo-50 to-white">
       <motion.div
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.8 }}
-        className="max-w-4xl mx-auto text-center"
+        className="max-w-4xl text-center"
       >
         <h1 className="text-5xl sm:text-6xl font-extrabold tracking-tight mb-6 text-gradient">
           Excel Magic with AI
