@@ -1,8 +1,9 @@
-"use client"; // Ensure client-side rendering
+"use client";
 
-import { useSession, signOut } from "next-auth/react";
-import Link from "next/link";
+import { useSession } from "next-auth/react";
 import { motion } from "framer-motion";
+import { FilePlus, DownloadCloud } from "lucide-react";
+import Link from "next/link";
 
 export default function Dashboard() {
   const { data: session, status } = useSession();
@@ -12,44 +13,40 @@ export default function Dashboard() {
   }
 
   if (!session) {
-    return (
-      <p className="text-center text-gray-500 mt-8">
-        You are not authorized. Please{" "}
-        <span className="text-indigo-600 font-semibold cursor-pointer" onClick={() => signOut()}>
-          Sign Out
-        </span>{" "}
-        and try again.
-      </p>
-    );
+    return <p className="text-center text-gray-500 mt-8">You are not authorized. Please sign in.</p>;
   }
 
   return (
-    <section className="w-full min-h-screen flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8">
-      <div className="max-w-4xl text-center">
-        <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tight mb-6 text-gradient">
-          Welcome, {session.user?.name}!
-        </h1>
-        <p className="text-lg text-gray-600 mb-8">
-          Manage your generated Excel files and create new ones easily.
-        </p>
-        <motion.a
-          href="/dashboard/excel-generator"
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className="inline-block bg-indigo-600 text-white font-semibold px-8 py-4 rounded-full text-lg shadow-lg hover:bg-indigo-700 transition duration-300"
-        >
-          Create an Excel File
-        </motion.a>
-        <br />
-        <motion.button
-          onClick={() => signOut()}
-          whileHover={{ scale: 1.05 }}
-          whileTap={{ scale: 0.95 }}
-          className="mt-6 bg-red-500 text-white px-6 py-3 rounded-full font-medium hover:bg-red-600 transition"
-        >
-          Sign Out
-        </motion.button>
+    <div className="p-6">
+      <h1 className="text-3xl font-bold text-gray-800">Welcome, {session.user?.name}!</h1>
+      <p className="text-gray-600">Manage your AI-generated Excel files with ease.</p>
+
+      {/* Dashboard Grid */}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 mt-6">
+        {/* Generate New File */}
+        <Link href="/dashboard/excel-generator">
+          <motion.div
+            whileHover={{ scale: 1.05 }}
+            className="bg-indigo-600 text-white rounded-lg p-6 flex flex-col items-center shadow-lg cursor-pointer hover:bg-indigo-700 transition"
+          >
+            <FilePlus size={40} />
+            <h2 className="text-xl font-semibold mt-4">Generate New Excel File</h2>
+          </motion.div>
+        </Link>
+
+        {/* Recent Files */}
+        <div className="bg-white rounded-lg p-6 shadow-lg">
+          <h2 className="text-xl font-semibold text-gray-800 mb-4">Recent Files</h2>
+          <ul className="space-y-3">
+            <li className="flex items-center justify-between p-3 bg-gray-50 rounded-md hover:bg-gray-100 transition">
+              <span className="text-gray-700">Budget_Report.xlsx</span>
+              <motion.a href="#" download whileHover={{ scale: 1.05 }} className="text-indigo-600 hover:text-indigo-800 flex items-center">
+                <DownloadCloud size={18} className="mr-1" /> Download
+              </motion.a>
+            </li>
+          </ul>
+        </div>
       </div>
-    </section>
+    </div>
   );
 }
