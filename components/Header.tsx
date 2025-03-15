@@ -38,7 +38,7 @@ export default function Header() {
             </>
           ) : (
             <motion.button
-              onClick={() => signIn()} // 🔹 Sign in button
+              onClick={() => window.location.href = '/signin'}// 🔹 Sign in button
               whileHover={{ scale: 1.05 }}
               whileTap={{ scale: 0.95 }}
               className="bg-indigo-100 text-indigo-600 px-4 py-2 rounded-full font-medium hover:bg-indigo-200 transition"

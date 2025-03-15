@@ -65,7 +65,7 @@ export default function ExcelGenerator() {
   useEffect(() => {
     setMessages([
       {
-        text: "👋 Hi! I'm excel-ai. Let's create your Excel file—choose an option below or tell me what you need!",
+        text: "👋 Hi! I'm Excel AI. Let's create your Excel file—choose an option below or tell me what you need!",
         sender: "ai",
       },
     ]);

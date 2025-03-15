@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import uuid
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
@@ -29,7 +30,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# In-memory storage for user sessions (for demonstration only)
+# ---------------------------
+# In-memory storage for user sessions
+# Each session has:
+#   "conversation": list of {"role": "user"/"assistant", "content": "..."}
+#   "excel_file": optional path if generated
+# ---------------------------
 user_sessions = {}
 
 # ---------------------------
@@ -39,111 +45,176 @@ class ChatRequest(BaseModel):
     user_id: str
     message: str
 
-class ExcelRequest(BaseModel):
-    user_id: str
+# We'll return either a question or a link
+# to the generated file
+class ChatResponse(BaseModel):
+    reply: str
+    done: bool = False
+    file_link: str = ""
 
 # ---------------------------
-# Conversation Questions (Server Controlled)
+# Utility: Build the Prompt for GPT
+# We'll have a system instruction that says:
+#   "You are an AI that helps gather info to build an Excel file...
+#   If you have enough info, respond with JSON containing done=true
+#   and the structure to build the Excel. Otherwise, ask more questions."
 # ---------------------------
-QUESTIONS = [
-    "What type of Excel file do you need? (e.g., Budget Tracker, Payroll, Inventory, Sales Report)",
-    "Do you want pre-filled values in the Excel file? (Yes/No)",
-    "What specific calculations should be included? (e.g., Sum, Averages, Profit Margins, Tax Deductions)",
-    "Do you need visual elements like charts, conditional formatting, or colored sections?"
-]
+SYSTEM_PROMPT = """
+You are an AI that helps gather info to build an Excel file. 
+You will receive a conversation so far. If you still need more info from the user, 
+ask a question. If you have enough info to build the Excel file, respond with JSON 
+in this format exactly:
+
+{
+  "done": true,
+  "excel_template": {
+    "template_name": "...",
+    "columns": [...],
+    "formulas": {...},
+    "formatting": {...}
+  }
+}
+
+If you still need more info, respond with JSON:
+
+{
+  "done": false,
+  "question": "Your next question here"
+}
+
+Do not include any other keys besides 'done', 'excel_template', or 'question'. 
+No markdown formatting. 
+"""
 
 # ---------------------------
-# Server-Driven Conversation Logic
+# /chat endpoint
+# 1) Store user message in conversation
+# 2) Call GPT with system prompt + conversation
+# 3) Parse GPT's JSON
+# 4) If done=true, build Excel and return link
+# 5) Otherwise, return question
 # ---------------------------
-def ask_agent(user_id: str, user_message: str):
-    # Retrieve or initialize session data for this user
-    session = user_sessions.get(user_id, {"step": 0, "responses": []})
-    # Append the user's answer
-    session["responses"].append(user_message)
-
-    # If there are still questions left, return the next question
-    if session["step"] < len(QUESTIONS):
-        next_question = QUESTIONS[session["step"]]
-        session["step"] += 1
-        user_sessions[user_id] = session
-        return {"reply": next_question, "done": False}
-    else:
-        # All questions answered—clear the session and indicate "done"
-        # Optionally, you could keep the session data if needed later.
-        user_sessions.pop(user_id, None)
-        return {"reply": "Thank you! Generating your Excel file now...", "done": True, "responses": session["responses"]}
-
 @app.post("/chat")
-async def chat_with_ai(request: ChatRequest):
-    response = ask_agent(request.user_id, request.message)
-    return response
+def chat_with_ai(req: ChatRequest):
+    session = user_sessions.get(req.user_id)
+    if not session:
+        # Initialize new session
+        session = {
+            "conversation": [
+                {"role": "system", "content": SYSTEM_PROMPT}
+            ],
+            "excel_file": None
+        }
+        user_sessions[req.user_id] = session
 
-# ---------------------------
-# Generate Excel Template Using AI
-# ---------------------------
-def generate_excel_structure(responses):
-    prompt = f"""
-Generate a structured JSON template for an Excel file based on the following user inputs:
-- File Type: {responses[0]}
-- Pre-filled Values: {responses[1]}
-- Calculations: {responses[2]}
-- Visual Elements: {responses[3]}
+    # Append user message
+    session["conversation"].append({"role": "user", "content": req.message})
 
-Include:
-- 'template_name': A relevant name for the template.
-- 'columns': A list of column headers.
-- 'formulas': A dictionary mapping column letters (e.g., "F2") to Excel formulas.
-- 'formatting': Any formatting instructions (e.g., bold headers, colored cells, charts).
-    """
+    # Build GPT messages
+    gpt_messages = session["conversation"]
+
+    # Call GPT
+    response = client.chat.completions.create(
+        model="gpt-4o",  # or your available model
+        messages=gpt_messages,
+        temperature=0.7,
+        max_tokens=800,
+        top_p=1
+    )
+
+    raw_output = response.choices[0].message.content.strip()
+    # Attempt to parse JSON
+    # If parse fails, we'll just treat it as question
+    raw_output = re.sub(r'```(json)?|```', '', raw_output).strip()
+
     try:
-        response = client.chat.completions.create(
-            model="gpt-4o",
-            messages=[{"role": "user", "content": prompt}],
-            temperature=1,
-            max_tokens=4096,
-            top_p=1
-        )
-        raw_output = response.choices[0].message.content.strip()
-        raw_output = re.sub(r'```json|```', '', raw_output).strip()
-        return json.loads(raw_output)
-    except json.JSONDecodeError as e:
-        raise HTTPException(status_code=500, detail=f"AI response could not be parsed as JSON. Error: {str(e)} \nRaw Output: {raw_output}")
+        parsed = json.loads(raw_output)
+    except json.JSONDecodeError:
+        # GPT did not return valid JSON, treat entire output as a question
+        parsed = {
+            "done": False,
+            "question": raw_output
+        }
+
+    # If done = false, it's a question
+    if not parsed.get("done"):
+        question = parsed.get("question", raw_output)
+        # Append GPT's question to conversation
+        session["conversation"].append({"role": "assistant", "content": question})
+        return {
+            "reply": question,
+            "done": False,
+            "file_link": ""
+        }
+
+    # If done = true, we have an excel_template
+    excel_template = parsed.get("excel_template")
+    if not excel_template:
+        # If no excel_template, fallback
+        question = "I tried to parse excel_template but couldn't find it. Could you clarify?"
+        session["conversation"].append({"role": "assistant", "content": question})
+        return {
+            "reply": question,
+            "done": False,
+            "file_link": ""
+        }
+
+    # Build the file
+    file_path = create_excel_file(excel_template)
+    session["excel_file"] = file_path
+
+    # We'll return a link to download the file from /download/<filename> 
+    # or we can just return an absolute path. For simplicity:
+    file_name = os.path.basename(file_path)
+
+    # Append GPT's "done" to conversation
+    session["conversation"].append({"role": "assistant", "content": "Excel file generated."})
+    user_sessions[req.user_id] = session
+
+    return {
+        "reply": "I've generated your Excel file! Click the link to download.",
+        "done": True,
+        "file_link": f"/download/{file_name}"
+    }
 
 # ---------------------------
-# Create Excel File
+# /download/{file_name} to serve the Excel
+# ---------------------------
+@app.get("/download/{file_name}")
+def download_excel(file_name: str):
+    file_path = os.path.join(os.getcwd(), file_name)
+    if not os.path.exists(file_path):
+        raise HTTPException(status_code=404, detail="File not found")
+    return FileResponse(file_path, filename=file_name, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+
+# ---------------------------
+# Create Excel File from Template
 # ---------------------------
 def create_excel_file(template_data):
-    filename = f"{template_data['template_name'].replace(' ', '_')}.xlsx"
+    filename = template_data.get("template_name", "ExcelFile").replace(" ", "_") + "_" + str(uuid.uuid4()) + ".xlsx"
     filepath = os.path.join(os.getcwd(), filename)
+
     wb = openpyxl.Workbook()
     ws = wb.active
-    ws.title = template_data["template_name"]
+    ws.title = template_data.get("template_name", "Sheet1")
+
     # Add headers
-    headers = template_data["columns"]
-    ws.append(headers)
-    # Apply bold font to headers
+    headers = template_data.get("columns", [])
+    if headers:
+        ws.append(headers)
+
+    # Bold headers
     for col_num, header in enumerate(headers, 1):
-        ws.cell(row=1, column=col_num, value=header).font = openpyxl.styles.Font(bold=True)
-    # Insert formulas if provided
-    for cell, formula in template_data.get("formulas", {}).items():
-        ws[cell] = formula
+        cell = ws.cell(row=1, column=col_num, value=header)
+        cell.font = openpyxl.styles.Font(bold=True)
+
+    # Insert formulas
+    formulas = template_data.get("formulas", {})
+    for cell_addr, formula in formulas.items():
+        ws[cell_addr] = formula
+
+    # Additional formatting if needed
+    # e.g. template_data["formatting"]
+
     wb.save(filepath)
     return filepath
-
-@app.post("/generate_excel")
-async def generate_excel(request: ExcelRequest):
-    try:
-        # Get the user's session data
-        user_data = user_sessions.pop(request.user_id, None)
-        # Check if the user answered all questions
-        if not user_data or len(user_data["responses"]) < len(QUESTIONS):
-            raise HTTPException(status_code=400, detail="Incomplete data. Please complete the chat process.")
-        # Generate Excel structure from the collected responses
-        template_data = generate_excel_structure(user_data["responses"])
-        # Create the Excel file
-        file_path = create_excel_file(template_data)
-        # Return the file for download
-        return FileResponse(file_path, filename=os.path.basename(file_path),
-                            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
