@@ -23,7 +23,7 @@ const templates = [
 
 export default function ExampleTemplates() {
   return (
-    <section className="w-full py-16 bg-gradient-to-b from-white to-indigo-50">
+    <section id="explore" className="w-full py-16 bg-gradient-to-b from-white to-indigo-50">
       <div className="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8">
         <h2 className="text-4xl font-bold text-center mb-12 text-gray-800">Discover What's Possible</h2>
         <div className="grid grid-cols-1 gap-12 md:grid-cols-3">

@@ -8,8 +8,12 @@ export const authOptions = {
       clientSecret: process.env.GOOGLE_CLIENT_SECRET!,
     }),
   ],
-  secret: process.env.NEXTAUTH_SECRET, // ✅ Ensure this is set in .env.local
+  secret: process.env.NEXTAUTH_SECRET,
+  pages: {                         // 👈 Add this section
+    signIn: "/signin",             // 👈 Your custom signin route
+  },
 };
 
 const handler = NextAuth(authOptions);
-export { handler as GET, handler as POST }; // ✅ Export both GET & POST
+
+export { handler as GET, handler as POST };

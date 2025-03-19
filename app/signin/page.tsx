@@ -3,16 +3,20 @@
 import { signIn, useSession } from "next-auth/react";
 import { motion } from "framer-motion";
 import Image from "next/image";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect } from "react";
+import { X } from "lucide-react";  // 👈 Import Lucide icon
+import Link from "next/link";
 
 export default function SignInPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const error = searchParams.get('error');
 
   useEffect(() => {
     if (status === "authenticated") {
-      router.push("/dashboard"); // Confirm correct path here!
+      router.push("/dashboard");
     }
   }, [status, router]);
 
@@ -27,7 +31,11 @@ export default function SignInPage() {
   return (
     <div className="flex min-h-screen">
       {/* Left Side - Sign-in Form */}
-      <div className="flex-1 bg-white flex items-center justify-center px-4 sm:px-6 lg:px-8">
+      <div className="flex-1 bg-white flex flex-col items-center justify-center px-4 sm:px-6 lg:px-8 relative">
+        <Link href="/" className="absolute top-6 left-6 text-gray-500 hover:text-gray-800 transition">
+          <X size={28} />
+        </Link>
+
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
@@ -43,8 +51,19 @@ export default function SignInPage() {
             </p>
           </div>
 
+          {error && (
+            <div className="text-center bg-red-100 border border-red-300 text-red-700 px-4 py-2 rounded-md">
+              <p>⚠️ Sign-in was canceled or failed. Please try again.</p>
+            </div>
+          )}
+
           <motion.button
-            onClick={() => signIn("google")}
+            onClick={() =>
+              signIn("google", { 
+                callbackUrl: "/dashboard",
+                redirect: true
+              })
+            }
             whileHover={{ scale: 1.02 }}
             whileTap={{ scale: 0.98 }}
             className="flex items-center justify-center w-full bg-gray-100 shadow-md rounded-lg py-3 px-4 text-sm font-semibold text-gray-700 hover:shadow-lg transition duration-300"
@@ -77,13 +96,13 @@ export default function SignInPage() {
       {/* Right Side - Info Panel */}
       <div className="hidden lg:flex w-1/2 bg-indigo-600 text-white items-center justify-center p-10">
         <div className="max-w-lg">
-        <Image
+          <Image
             src="/smartdocs_logo.jpg"
             alt="Excel AI Illustration"
             width={400}
             height={300}
-            className="mb-6 rounded-xl" // 👈 added rounded-xl
-            />
+            className="mb-6 rounded-xl"
+          />
           <h3 className="text-3xl font-bold mb-4">Simplify Your Excel Workflow</h3>
           <p className="mb-6 text-white text-opacity-80">
             Generate powerful Excel files instantly with Excel-AI. Save time and increase productivity—let AI handle the heavy lifting!

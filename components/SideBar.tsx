@@ -1,3 +1,4 @@
+// Sidebar.tsx
 "use client";
 
 import Link from "next/link";
@@ -18,7 +19,7 @@ export default function Sidebar() {
           <FileText size={20} /> Generate Excel
         </Link>
         <button
-          onClick={() => signOut()}
+          onClick={() => signOut({ callbackUrl: "/" })} // 🔥 Redirect explicitly to homepage
           className="flex items-center gap-3 p-3 rounded-lg bg-red-500 hover:bg-red-600 w-full text-left"
         >
           <LogOut size={20} /> Sign Out

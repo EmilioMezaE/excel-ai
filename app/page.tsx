@@ -17,7 +17,7 @@ export default function Home() {
 
   useEffect(() => {
     if (session) {
-      router.push("/dashboard"); // Redirect signed-in users
+      router.push("/signin"); // Redirect signed-in users
     }
   }, [session, router]);
 
